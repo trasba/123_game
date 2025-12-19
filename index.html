@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>1, 2, 3 Game</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        :root { --primary: #007bff; --success: #28a745; --danger: #dc3545; --bg: #f4f7f6; }
+        body { font-family: 'Segoe UI', Tahoma, sans-serif; background: var(--bg); display: flex; justify-content: center; padding: 20px; }
+        #game-card { background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); width: 100%; max-width: 400px; }
+        .hidden { display: none; }
+        input { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; }
+        button { width: 100%; padding: 12px; border: none; border-radius: 5px; cursor: pointer; transition: 0.2s; font-weight: bold; margin-bottom: 8px; }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-outline { background: white; border: 2px solid var(--primary); color: var(--primary); }
+        .btn-leave { background: none; color: var(--danger); border: 1px solid var(--danger); font-size: 0.8rem; padding: 5px; margin-top: 20px; }
+        .controls { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin: 20px 0; }
+        .choice-btn { background: #eee; color: #333; font-size: 1.2rem; }
+        .choice-btn.selected { background: var(--success) !important; color: white; transform: translateY(-3px); }
+        .player-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; border-bottom: 1px solid #eee; transition: background 0.3s; }
+        .kick-btn { background: var(--danger); color: white; padding: 4px 8px; font-size: 0.7rem; width: auto; margin: 0; }
+        .reveal-val { font-weight: bold; color: var(--primary); margin-right: 5px; }
+        #timerDisplay { font-size: 2rem; text-align: center; margin: 10px 0; color: var(--danger); min-height: 2.5rem; }
+    </style>
+</head>
+<body>
+    <div id="game-card">
+        <div id="login-screen">
+            <h2>Enter Game</h2>
+            <input type="text" id="nameInput" placeholder="Your Name">
+            <input type="text" id="roomInput" placeholder="Session ID">
+            <button class="btn-primary" onclick="join(true)">Create Session</button>
+            <button class="btn-outline" onclick="join(false)">Join Existing</button>
+        </div>
+        
+        <div id="game-screen" class="hidden">
+            <h3>Room: <span id="roomLabel"></span></h3>
+            <div id="timerDisplay"></div>
+            <div id="playerList" style="margin-bottom: 15px;"></div>
+            <div id="votingArea" class="hidden">
+                <p>Pick a number:</p>
+                <div class="controls">
+                    <button class="choice-btn" onclick="makeChoice(1, this)">1</button>
+                    <button class="choice-btn" onclick="makeChoice(2, this)">2</button>
+                    <button class="choice-btn" onclick="makeChoice(3, this)">3</button>
+                </div>
+            </div>
+            <div id="ownerControls" class="hidden" style="border-top: 1px solid #eee; padding-top: 10px; margin-top: 10px;">
+                <p style="margin-bottom: 5px;"><strong>Owner Panel</strong></p>
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                    <label for="timerInput" style="font-size: 0.9rem;">Seconds:</label>
+                    <input type="number" id="timerInput" value="10" min="1" max="300" 
+                    style="margin: 0; width: 80px;" onchange="updateLimit()">
+                </div>
+                <button class="btn-primary" onclick="startTimer()">Start New Round</button>
+            </div>
+            <button class="btn-leave" onclick="leaveSession()">Leave Session</button>
+        </div>
+    </div>
+    
+    <script>
+        const socket = io();
+        let myRoom = "";
+        let amIOwner = false;
+        
+        window.onload = () => {
+            const savedRoom = localStorage.getItem('game_roomId');
+            const savedName = localStorage.getItem('game_name');
+            const savedOwner = localStorage.getItem('game_isOwner') === 'true';
+            if(savedRoom && savedName) {
+                myRoom = savedRoom;
+                amIOwner = savedOwner;
+                socket.emit('joinSession', { roomId: savedRoom, name: savedName, isOwner: savedOwner });
+            }
+        };
+        
+        function updateLimit() {
+            const limit = document.getElementById('timerInput').value;
+            socket.emit('setTimerLimit', { roomId: myRoom, limit: limit });
+        }
+        
+        function join(isOwner) {
+            const name = document.getElementById('nameInput').value;
+            const roomId = document.getElementById('roomInput').value;
+            if(!name || !roomId) return alert("Missing fields");
+            localStorage.setItem('game_roomId', roomId);
+            localStorage.setItem('game_name', name);
+            localStorage.setItem('game_isOwner', isOwner);
+            myRoom = roomId; amIOwner = isOwner;
+            socket.emit('joinSession', { roomId, name, isOwner });
+        }
+        
+        function leaveSession() {
+            socket.emit('leaveSession', myRoom);
+            localStorage.clear();
+            location.reload();
+        }
+        
+        socket.on('joined', ({ isOwner, roomId }) => {
+            document.getElementById('login-screen').classList.add('hidden');
+            document.getElementById('game-screen').classList.remove('hidden');
+            document.getElementById('roomLabel').innerText = roomId;
+            if(isOwner) document.getElementById('ownerControls').classList.remove('hidden');
+        });
+        
+        socket.on('updatePlayers', (players) => {
+            const list = document.getElementById('playerList');
+            list.innerHTML = '<strong>Players:</strong>';
+            players.forEach(p => {
+                const isMe = p.id === socket.id;
+                const div = document.createElement('div');
+                div.className = 'player-item';
+                
+                if (isMe) {
+                    div.style.fontWeight = 'bold';
+                    div.style.backgroundColor = '#e7f3ff';
+                    div.style.borderRadius = '5px';
+                }
+                
+                div.innerHTML = `
+                <span>${p.name} ${isMe ? '(You)' : ''}</span>
+                <div>
+                    <span id="reveal-${p.id}" class="reveal-val"></span>
+                    ${(amIOwner && !p.isOwner) ? `<button class="kick-btn" onclick="kick('${p.id}')">Kick</button>` : ''}
+                </div>`;
+                list.appendChild(div);
+            });
+        });
+        
+        function makeChoice(val, btn) {
+            socket.emit('makeChoice', { roomId: myRoom, choice: val });
+            document.querySelectorAll('.choice-btn').forEach(b => b.classList.remove('selected'));
+            btn.classList.add('selected');
+        }
+        
+        socket.on('limitUpdated', (newLimit) => {
+            const input = document.getElementById('timerInput');
+            if (input) input.value = newLimit;
+        });
+        
+        function startTimer() { socket.emit('startTimer', myRoom); }
+        
+        socket.on('timerStarted', (duration) => {
+            document.getElementById('votingArea').classList.remove('hidden');
+            document.querySelectorAll('.reveal-val').forEach(s => s.innerText = "");
+            document.querySelectorAll('.choice-btn').forEach(b => b.classList.remove('selected'));
+            let timeLeft = duration;
+            const timerObj = setInterval(() => {
+                document.getElementById('timerDisplay').innerText = timeLeft;
+                if(timeLeft-- <= 0) { 
+                    clearInterval(timerObj); 
+                    document.getElementById('timerDisplay').innerText = "VOTES IN!";
+                    document.getElementById('votingArea').classList.add('hidden');
+                }
+            }, 1000);
+        });
+        
+        socket.on('reveal', (players) => {
+            players.forEach(p => {
+                const el = document.getElementById(`reveal-${p.id}`);
+                if(el) el.innerText = p.choice ? ` [${p.choice}]` : " [-]";
+            });
+        });
+        
+        function kick(playerId) { socket.emit('kickPlayer', { roomId: myRoom, playerId }); }
+        socket.on('kicked', () => { localStorage.clear(); location.reload(); });
+        socket.on('errorMsg', (msg) => { alert(msg); localStorage.clear(); location.reload(); });
+    </script>
+</body>
+</html>

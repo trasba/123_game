@@ -1,0 +1,13 @@
+services:
+  game-site:
+    image: node:alpine
+    container_name: game_123
+    working_dir: /app
+    volumes:
+      - .:/app
+    ports:
+      - "3000:3000"
+    # We use 'npm install --no-save' to keep your package.json clean 
+    # and only install if node_modules is missing to save time on restarts.
+    command: sh -c "if [ ! -d 'node_modules' ]; then npm install; fi && node server.js"
+    restart: always

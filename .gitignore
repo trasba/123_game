@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+npm-debug.log*
+
+# Docker
+.dockerignore
+caddy_data/
+caddy_config/
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# Local Persistence (if you use it for testing)
+*.log
+localStorage_backup/
+
+# Environment
+.env
